@@ -1,0 +1,8 @@
+[[node]]
+name = "bitcoin-testnet"
+chaintype = "bitcoin"
+test = true
+hostport = "http://shuttle.lan.mkz.me:18332"
+username = "rpc"
+password = "rpcpass"
+
