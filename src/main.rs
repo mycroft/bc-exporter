@@ -3,8 +3,11 @@ extern crate bitcoincore_rpc;
 extern crate serde_derive;
 extern crate toml;
 
+use std::env;
+use std::error::Error;
 use std::fs;
 use std::io::Read;
+use std::process;
 
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use prometheus_exporter_base::{render_prometheus, MetricType, PrometheusMetric};
@@ -27,29 +30,54 @@ struct Config {
 #[derive(Clone, Debug, Default)]
 struct MyOptions {}
 
-#[tokio::main]
-async fn main() {
+fn get_config(filename: String) -> Result<Config, Box<dyn Error>> {
     let mut file_path: std::path::PathBuf = std::path::PathBuf::new();
     file_path.push(std::env::current_dir().unwrap().as_path());
-    file_path.push("bc-exporter.toml");
+    file_path.push(filename);
 
-    let mut configuration_file: fs::File = fs::OpenOptions::new()
+    let mut configuration_file: fs::File = match fs::OpenOptions::new()
         .read(true)
-        .open(file_path.as_path())
-        .expect("Cannot open the configuration file");
+        .open(file_path.as_path()) {
+            Ok(configuration_file) => configuration_file,
+            Err(error) => {
+                return Err(Box::new(error))
+            }
+        };
 
     let mut contents = String::new();
 
     match configuration_file.read_to_string(&mut contents) {
         Ok(_) => {},
-        Err(error) => panic!(
-            "Invalid configuration file: {}", error
-        ),
+        Err(error) => {
+            return Err(Box::new(error))
+        }
     }
 
     let config: Config = match toml::from_str(&contents) {
         Ok(config) => config,
-        Err(error) => panic!("Failed with error: {}", error),
+        Err(error) => {
+            return Err(Box::new(error))
+        }
+    };
+
+    return Ok(config);
+}
+
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = env::args().collect();
+    let mut filename : String = "bc-exporter.toml".to_string();
+
+    if args.len() > 1 {
+        filename = args[1].to_string();
+    }
+
+    let config = match get_config(filename) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("Could not load configuration: {}", error);
+            process::exit(1)
+        }
     };
 
     let addr = ([0, 0, 0, 0], 32221).into();
@@ -65,7 +93,7 @@ async fn main() {
             let rpc = match Client::new(node.hostport.to_string(), user_pass) {
                 Ok(rpc) => rpc,
                 Err(error) => {
-                    println!("Failed while doing {}: {}", node.name, error);
+                    eprintln!("Failed while doing {}: {}", node.name, error);
                     continue
                 }
             };
@@ -73,7 +101,7 @@ async fn main() {
             let block_count = match rpc.get_block_count() {
                 Ok(block_count) => block_count,
                 Err(error) => {
-                    println!("Failed while doing {}: {}", node.name, error);
+                    eprintln!("Failed while doing {}: {}", node.name, error);
                     continue
                 }
             };
